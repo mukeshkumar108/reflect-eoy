@@ -1,0 +1,214 @@
+:root {
+  color-scheme: dark;
+  --bg: #04060d;
+  --panel: rgba(255, 255, 255, 0.06);
+  --panel-strong: rgba(255, 255, 255, 0.12);
+  --text: #e7ebf5;
+  --muted: #9fb1c9;
+  --accent: #6cf1d6;
+  --danger: #ff6b6b;
+  --gradient: radial-gradient(circle at 10% 20%, rgba(108, 241, 214, 0.08), transparent 35%), radial-gradient(circle at 80% 0%, rgba(255, 255, 255, 0.05), transparent 25%), radial-gradient(circle at 50% 80%, rgba(108, 180, 241, 0.07), transparent 28%);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  background-image: var(--gradient);
+  color: var(--text);
+  font-family: var(--font-sans, "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-shell {
+  min-height: 100vh;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 24px 18px 48px;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+button {
+  border: none;
+  cursor: pointer;
+  border-radius: 14px;
+  padding: 14px 18px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font-weight: 600;
+  transition: transform 0.08s ease, background 0.12s ease, box-shadow 0.12s ease;
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.grid-two {
+  display: grid;
+  gap: 14px;
+}
+
+@media (min-width: 800px) {
+  .grid-two {
+    grid-template-columns: 1.1fr 0.9fr;
+  }
+}
+
+.record-btn {
+  width: 100%;
+  height: 96px;
+  border-radius: 18px;
+  font-size: 22px;
+  letter-spacing: 0.5px;
+  background: linear-gradient(120deg, rgba(108, 241, 214, 0.85), rgba(71, 199, 255, 0.9));
+  color: #041622;
+  box-shadow: 0 14px 30px rgba(108, 241, 214, 0.28);
+}
+
+.record-btn.recording {
+  background: linear-gradient(120deg, rgba(255, 124, 124, 0.92), rgba(255, 171, 94, 0.88));
+  color: #220606;
+  box-shadow: 0 18px 32px rgba(255, 124, 124, 0.35);
+}
+
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bubble {
+  padding: 12px 14px;
+  border-radius: 14px;
+  line-height: 1.48;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.bubble.user {
+  background: rgba(108, 241, 214, 0.06);
+  border-color: rgba(108, 241, 214, 0.35);
+}
+
+.bubble.assistant {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.message-meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.cta-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.input-inline {
+  display: flex;
+  gap: 8px;
+}
+
+.input-inline input {
+  flex: 1;
+  padding: 12px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 15px;
+}
+
+.tag {
+  display: inline-flex;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 6px 10px;
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.summary-block {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.summary-block h4 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+
+.summary-block ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+.summary-block li + li {
+  margin-top: 6px;
+}
+
+.footnote {
+  font-size: 13px;
+  color: var(--muted);
+}

@@ -15,14 +15,16 @@ export const summaryPrompt = `
   }
 
   Rules:
-  - Use the user’s words where possible; keep it specific and grounded.
+  - Use the user’s concrete nouns/phrases (places, people, events) as evidence hooks. Avoid generic statements.
   - Keep it concise; avoid duplication.
-  - Commitments must be action-ready:
+  - Commitments must be action-ready AND map to levers discovered (win-condition or drain-cause):
     - title: short, concrete
-    - why: one sentence
-    - first_step: doable in <15 minutes
-    - cadence: specific (e.g., “Mon/Wed/Fri”, “daily at 9am”, “weekly Sunday 30 min”)
+    - why: one sentence tied to a lever/pattern from the transcript
+    - first_step: must be doable in <15 minutes (hard rule)
+    - cadence: calendar-ready and specific (e.g., “Sun 6pm weekly review”, “Wed 7:30pm”, not just “weekly”)
   - Include 3–5 commitments if possible (else fewer).
+  - If/then rules: at least 3 if the data exists; each must trigger on real patterns from the transcript (e.g., “If I start doom-scrolling after 11pm, then…”).
+  - Theme: not generic; must reference at least one specific element from the transcript (e.g., “Money expectations vs love emerging; rebuild career without losing closeness”).
   - Do not include nulls; return valid JSON with all keys present; arrays may be empty.
   - No extra commentary or markdown.
 `;

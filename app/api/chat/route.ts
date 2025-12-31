@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
         role: "system",
         content: `${coachSystemPrompt}\nRespond in language: ${language}.\nCurrent step intent: ${
           stepContext || "continue naturally"
-        }\nYou must ask the next single question for this step.`
+        }\nYou must ask the next single question for this step. Include brief factual recap when appropriate. If coming from a drain, reconnect to a prior positive anchor before the question. If user parks/declines, acknowledge once then offer a narrowed prompt or move on.`
       },
       ...sanitizedMessages
     ],

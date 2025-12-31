@@ -222,7 +222,7 @@ export default function SessionPage() {
     if (!hasBegun) setHasBegun(true);
     setSummary(null);
 
-    if (questionStep <= 6) {
+    if (questionStep <= 9) {
       const nextStep = questionStep + 1;
       setQuestionStep(nextStep);
       const context = stepIntents[questionStep] || "Continue the reflection naturally.";

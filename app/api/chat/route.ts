@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { coachSystemPrompt } from "../../../lib/prompts";
+
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MAX_MESSAGES = 50;
 const MAX_CONTENT_LENGTH = 3000;
@@ -7,9 +9,6 @@ const MAX_CONTENT_LENGTH = 3000;
 export const runtime = "nodejs";
 
 type Message = { role: "user" | "assistant" | "system"; content: string };
-
-const systemPrompt =
-  "You are Year Review Coach, a reflective, conversational partner. Ask one pointed question at a time, and only after acknowledging what you just heard. Keep responses concise and warm, avoid bullet lists unless summarising, and offer adaptive follow-ups that keep the user talking about their year, wins, drains, and lessons. Never drift into generic therapy disclaimers.";
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENROUTER_API_KEY;
@@ -46,7 +45,7 @@ export async function POST(req: NextRequest) {
 
   const payload = {
     model,
-    messages: [{ role: "system", content: systemPrompt }, ...sanitizedMessages],
+    messages: [{ role: "system", content: coachSystemPrompt }, ...sanitizedMessages],
     temperature: 0.6
   };
 

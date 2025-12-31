@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { summaryPrompt } from "../../../lib/prompts";
+
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MAX_MESSAGES = 70;
 const MAX_CONTENT_LENGTH = 4000;
@@ -7,22 +9,6 @@ const MAX_CONTENT_LENGTH = 4000;
 export const runtime = "nodejs";
 
 type Message = { role: "user" | "assistant" | "system"; content: string };
-
-const summaryPrompt = `You are an expert facilitator creating a crisp one-page Year Review action sheet.
-Given a conversation transcript between a user and a coach, produce JSON only with this shape:
-{
-  year_sentence: string,
-  wins: string[],
-  drains: string[],
-  theme: string,
-  top_lessons: string[],
-  commitments: [{title: string, why: string, first_step: string, cadence: string}],
-  stop_doing: string[],
-  if_then_rules: string[],
-  people_to_invest_in: string[],
-  closing_note: string
-}
-Rules: keep it concise; avoid duplication; commitments must be action-ready with cadence; do not include nulls; return valid JSON with all keys present and arrays (can be empty). No extra commentary or markdown.`;
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENROUTER_API_KEY;

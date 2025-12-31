@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 type Message = {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   content: string;
 };
 
@@ -21,29 +21,35 @@ type Summary = {
   closing_note: string;
 };
 
+type Phase = "idle" | "active" | "paused" | "finished";
+
 const MAX_TTS_CHARS = 600;
 const MAX_MANUAL_INPUT = 320;
+const ESCAPE_PHRASES = ["end session", "stop everything", "cancel", "just stop", "shut up"];
+const FILLER_WORDS = ["uh", "um", "hey", "hmm", "huh", "yo", "hi", "hello"];
 
 export default function SessionPage() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: "assistant",
-      content:
-        "Welcome back. When you are ready, press record and talk me through the moments that defined your year. I will ask one focused question at a time."
-    }
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [questionStep, setQuestionStep] = useState(0);
+  const [hasBegun, setHasBegun] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [isSummarising, setIsSummarising] = useState(false);
   const [manualInput, setManualInput] = useState("");
-  const [createdAt] = useState(() => new Date().toISOString());
+  const [createdAt, setCreatedAt] = useState(() => new Date().toISOString());
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const audioPlaybackRef = useRef<HTMLAudioElement | null>(null);
+  const sttAbortRef = useRef<AbortController | null>(null);
+  const chatAbortRef = useRef<AbortController | null>(null);
+  const ttsAbortRef = useRef<AbortController | null>(null);
+  const terminatedRef = useRef(false);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -51,8 +57,7 @@ export default function SessionPage() {
 
   useEffect(() => {
     return () => {
-      mediaRecorderRef.current?.stream.getTracks().forEach((t) => t.stop());
-      mediaRecorderRef.current?.stop();
+      hardEndSession();
     };
   }, []);
 
@@ -62,10 +67,66 @@ export default function SessionPage() {
     return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || null;
   };
 
-  const startRecording = async () => {
+  const startSessionOrResume = async () => {
+    if (phase === "finished") return;
     setError(null);
     setSummary(null);
-    if (isProcessing) return;
+    terminatedRef.current = false;
+    if (phase === "idle") {
+      setCreatedAt(new Date().toISOString());
+      setMessages([]);
+      setQuestionStep(0);
+      setPhase("active");
+      const intro =
+        "This is a short, guided end-of-year reflection.\nI’ll ask you a few thoughtful questions, one at a time.\nYou can answer briefly — there are no right answers.\nAt the end, you’ll get a simple one-page summary you can keep.\nWhen you’re ready, tap record and say: I’m ready.";
+      await deliverAssistant(intro, { autoListen: false });
+      return;
+    }
+
+    if (phase === "paused") {
+      setPhase("active");
+      return;
+    }
+  };
+
+  const pauseSession = () => {
+    if (phase !== "active") return;
+    setPhase("paused");
+    stopRecording();
+  };
+
+  const endAndSummarise = async () => {
+    stopRecording();
+    audioPlaybackRef.current?.pause();
+    setPhase("finished");
+    await handleFinishSession();
+  };
+
+  const hardEndSession = () => {
+    terminatedRef.current = true;
+    stopRecording();
+    audioPlaybackRef.current?.pause();
+    sttAbortRef.current?.abort();
+    chatAbortRef.current?.abort();
+    ttsAbortRef.current?.abort();
+    sttAbortRef.current = null;
+    chatAbortRef.current = null;
+    ttsAbortRef.current = null;
+    setIsProcessing(false);
+    setIsSpeaking(false);
+    setIsRecording(false);
+    setMessages([]);
+    setSummary(null);
+    setError(null);
+    setIsSummarising(false);
+    setManualInput("");
+    setQuestionStep(0);
+    setPhase("idle");
+  };
+
+  const startRecording = async () => {
+    if (terminatedRef.current) return;
+    if (isRecording || isSpeaking || isProcessing || phase !== "active") return;
     if (typeof window === "undefined" || typeof navigator === "undefined") return;
     if (typeof MediaRecorder === "undefined") {
       setError("Recording is not supported in this browser. Please try mobile Safari/Chrome.");
@@ -105,40 +166,93 @@ export default function SessionPage() {
     const recorder = mediaRecorderRef.current;
     if (recorder && recorder.state !== "inactive") {
       recorder.stop();
-    } else {
-      setIsRecording(false);
     }
+    setIsRecording(false);
   };
 
   const processAudio = async (audioBlob: Blob) => {
+    if (terminatedRef.current || phase !== "active") return;
     setIsProcessing(true);
     setError(null);
     try {
       const form = new FormData();
       form.append("file", audioBlob, "voice.webm");
+      sttAbortRef.current?.abort();
+      const controller = new AbortController();
+      sttAbortRef.current = controller;
       const res = await fetch("/api/stt", {
         method: "POST",
-        body: form
+        body: form,
+        signal: controller.signal
       });
       const data = await res.json();
       if (!res.ok || !data?.text) {
         throw new Error(data?.error || "Could not transcribe audio.");
       }
-      appendMessage({ role: "user", content: data.text });
-      await sendChat([...messages, { role: "user", content: data.text }]);
+      await handleUserTurn(data.text);
     } catch (err: any) {
+      if (err?.name === "AbortError") return;
       setError(err?.message || "Something went wrong while transcribing.");
     } finally {
       setIsProcessing(false);
     }
   };
 
+  const handleUserTurn = async (text: string) => {
+    if (terminatedRef.current || phase !== "active") return;
+    const trimmed = text.trim();
+    if (!trimmed) {
+      await deliverAssistant("I didn't catch much there. Share one quick moment from this year that stands out.", {
+        autoListen: false
+      });
+      return;
+    }
+    if (containsEscapePhrase(trimmed)) {
+      hardEndSession();
+      return;
+    }
+    appendMessage({ role: "user", content: trimmed });
+    if (!hasBegun) setHasBegun(true);
+    setSummary(null);
+
+    if (questionStep === 0) {
+      setQuestionStep(1);
+      await deliverAssistant(
+        "Let’s ease in. Thinking back over the year, did it turn out roughly how you expected — or did it surprise you?",
+        { autoListen: false }
+      );
+      return;
+    }
+
+    if (questionStep === 1) {
+      setQuestionStep(2);
+      await deliverAssistant("Looking back now, what’s one thing that genuinely went well this year?", { autoListen: false });
+      return;
+    }
+
+    if (questionStep === 2) {
+      setQuestionStep(3);
+      await deliverAssistant(
+        "And what’s one thing that didn’t go the way you hoped — or took more out of you than expected?",
+        { autoListen: false }
+      );
+      return;
+    }
+
+    await sendChat([...messages, { role: "user", content: trimmed }]);
+  };
+
   const sendChat = async (history: Message[]) => {
+    if (terminatedRef.current) return;
     try {
+      chatAbortRef.current?.abort();
+      const controller = new AbortController();
+      chatAbortRef.current = controller;
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history })
+        body: JSON.stringify({ messages: history }),
+        signal: controller.signal
       });
       const data = await res.json();
       if (!res.ok || !data?.assistantText) {
@@ -146,21 +260,33 @@ export default function SessionPage() {
       }
 
       const assistantText: string = data.assistantText;
-      appendMessage({ role: "assistant", content: assistantText });
-      await speak(assistantText);
+      await deliverAssistant(assistantText, { autoListen: true });
     } catch (err: any) {
+      if (err?.name === "AbortError") return;
       setError(err?.message || "Assistant request failed.");
     }
+  };
+
+  const deliverAssistant = async (text: string, opts: { autoListen?: boolean } = {}) => {
+    if (terminatedRef.current) return;
+    appendMessage({ role: "assistant", content: text });
+    await speak(text);
+    // no auto-recording in turn-based mode
   };
 
   const speak = async (text: string) => {
     if (!text) return;
     const clipped = text.slice(0, MAX_TTS_CHARS);
     try {
+      setIsSpeaking(true);
+      ttsAbortRef.current?.abort();
+      const controller = new AbortController();
+      ttsAbortRef.current = controller;
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: clipped })
+        body: JSON.stringify({ text: clipped }),
+        signal: controller.signal
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
@@ -173,11 +299,15 @@ export default function SessionPage() {
       if (!audioPlaybackRef.current) {
         audioPlaybackRef.current = new Audio();
       }
+      audioPlaybackRef.current.pause();
       audioPlaybackRef.current.src = url;
       await audioPlaybackRef.current.play();
     } catch (err: any) {
+      if (err?.name === "AbortError") return;
       console.error(err);
       setError(err?.message || "Could not play audio.");
+    } finally {
+      setIsSpeaking(false);
     }
   };
 
@@ -189,13 +319,11 @@ export default function SessionPage() {
     if (!manualInput.trim()) return;
     const text = manualInput.trim().slice(0, MAX_MANUAL_INPUT);
     setManualInput("");
-    setSummary(null);
-    appendMessage({ role: "user", content: text });
-    await sendChat([...messages, { role: "user", content: text }]);
+    await handleUserTurn(text);
   };
 
   const handleFinishSession = async () => {
-    if (messages.length < 2) return;
+    if (messages.filter((m) => m.role !== "system").length < 2) return;
     setIsSummarising(true);
     setError(null);
     try {
@@ -231,11 +359,20 @@ export default function SessionPage() {
     URL.revokeObjectURL(url);
   };
 
+  const displayMessages = messages.filter((m) => m.role !== "system");
   const statusLabel = isRecording
-    ? "Recording... tap to stop"
-    : isProcessing
-      ? "Processing..."
-      : "Tap to record";
+    ? "Recording... tap stop"
+    : isSpeaking
+      ? "Coach speaking..."
+      : isProcessing
+        ? "Thinking..."
+        : phase === "paused"
+          ? "Paused"
+          : phase === "finished"
+            ? "Session finished"
+            : phase === "idle"
+              ? "Start intro"
+              : "Tap to speak";
 
   return (
     <main className="stack" style={{ gap: 18 }}>
@@ -248,22 +385,34 @@ export default function SessionPage() {
 
       <div className="grid-two">
         <div className="stack" style={{ gap: 12 }}>
-          <button
-            className={`record-btn ${isRecording ? "recording" : ""}`}
-            onClick={isRecording ? stopRecording : startRecording}
-            disabled={isProcessing}
-            aria-live="polite"
-          >
-            {statusLabel}
-          </button>
+          <div className="cta-row" style={{ gap: 8, alignItems: "center" }}>
+            <button
+              className={`record-btn ${isRecording ? "recording" : ""}`}
+              onClick={() => (isRecording ? stopRecording() : phase === "idle" ? startSessionOrResume() : startRecording())}
+              disabled={isSpeaking || isProcessing || phase === "finished" || phase === "paused"}
+              aria-live="polite"
+            >
+              {statusLabel}
+            </button>
+            {isRecording && (
+              <button onClick={() => stopRecording()} disabled={isProcessing} style={{ minWidth: 120 }}>
+                Stop
+              </button>
+            )}
+          </div>
+          {!hasBegun && phase === "active" && !isRecording && !isSpeaking && !isProcessing && (
+            <div className="footnote" style={{ marginTop: -4 }}>
+              To begin, say: “I’m ready”.
+            </div>
+          )}
 
           <div className="card stack">
             <div className="cta-row" style={{ justifyContent: "space-between" }}>
               <h3>Transcript</h3>
-              <div className="tag">{messages.length} exchanges</div>
+              <div className="tag">{displayMessages.length} exchanges</div>
             </div>
             <div className="transcript" style={{ maxHeight: 420, overflowY: "auto" }}>
-              {messages.map((msg, idx) => (
+              {displayMessages.map((msg, idx) => (
                 <div key={idx} className={`bubble ${msg.role}`}>
                   <div className="message-meta">{msg.role === "user" ? "You" : "Coach"}</div>
                   <div>{msg.content}</div>
@@ -296,9 +445,16 @@ export default function SessionPage() {
           <div className="card stack" style={{ gap: 10 }}>
             <h3>Session controls</h3>
             <div className="cta-row">
-              <button onClick={handleFinishSession} disabled={isSummarising || messages.length < 2}>
-                {isSummarising ? "Summarising..." : "Finish session"}
+              <button onClick={pauseSession} disabled={phase === "paused" || phase === "finished" || phase === "idle"}>
+                Pause
               </button>
+              <button onClick={startSessionOrResume} disabled={phase === "finished"}>
+                {phase === "paused" ? "Resume" : phase === "idle" ? "Start" : "Resume"}
+              </button>
+              <button onClick={endAndSummarise} disabled={isSummarising || phase === "idle"}>
+                {isSummarising ? "Summarising..." : "End & summarise"}
+              </button>
+              <button onClick={hardEndSession}>End session</button>
               <button onClick={handleDownload}>Download session</button>
             </div>
             <p className="footnote">
@@ -380,4 +536,16 @@ function CommitmentList({ commitments }: { commitments: Summary["commitments"] }
       ))}
     </div>
   );
+}
+
+function containsEscapePhrase(text: string) {
+  const lower = text.toLowerCase();
+  return ESCAPE_PHRASES.some((phrase) => lower.includes(phrase));
+}
+
+function isLikelyFiller(text: string) {
+  const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+  if (words.length <= 3 && words.every((w) => FILLER_WORDS.includes(w))) return true;
+  return false;
 }

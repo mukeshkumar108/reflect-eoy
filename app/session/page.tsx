@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { stepIntents } from "../../lib/stepIntents";
 
 type Message = {
   role: "user" | "assistant" | "system";
@@ -27,12 +28,17 @@ const MAX_TTS_CHARS = 600;
 const MAX_MANUAL_INPUT = 320;
 const ESCAPE_PHRASES = ["end session", "stop everything", "cancel", "just stop", "shut up"];
 const FILLER_WORDS = ["uh", "um", "hey", "hmm", "huh", "yo", "hi", "hello"];
+const LANGUAGES = [
+  { code: "en", label: "English" },
+  { code: "es", label: "Español" }
+];
 
 export default function SessionPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [phase, setPhase] = useState<Phase>("idle");
   const [questionStep, setQuestionStep] = useState(0);
   const [hasBegun, setHasBegun] = useState(false);
+  const [language, setLanguage] = useState<"en" | "es">("en");
   const [isRecording, setIsRecording] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -177,6 +183,7 @@ export default function SessionPage() {
     try {
       const form = new FormData();
       form.append("file", audioBlob, "voice.webm");
+      form.append("language", language);
       sttAbortRef.current?.abort();
       const controller = new AbortController();
       sttAbortRef.current = controller;
@@ -215,34 +222,18 @@ export default function SessionPage() {
     if (!hasBegun) setHasBegun(true);
     setSummary(null);
 
-    if (questionStep === 0) {
-      setQuestionStep(1);
-      await deliverAssistant(
-        "Let’s ease in. Thinking back over the year, did it turn out roughly how you expected — or did it surprise you?",
-        { autoListen: false }
-      );
-      return;
-    }
-
-    if (questionStep === 1) {
-      setQuestionStep(2);
-      await deliverAssistant("Looking back now, what’s one thing that genuinely went well this year?", { autoListen: false });
-      return;
-    }
-
-    if (questionStep === 2) {
-      setQuestionStep(3);
-      await deliverAssistant(
-        "And what’s one thing that didn’t go the way you hoped — or took more out of you than expected?",
-        { autoListen: false }
-      );
+    if (questionStep <= 6) {
+      const nextStep = questionStep + 1;
+      setQuestionStep(nextStep);
+      const context = stepIntents[questionStep] || "Continue the reflection naturally.";
+      await sendChat([...messages, { role: "user", content: trimmed }], context);
       return;
     }
 
     await sendChat([...messages, { role: "user", content: trimmed }]);
   };
 
-  const sendChat = async (history: Message[]) => {
+  const sendChat = async (history: Message[], stepContext?: string) => {
     if (terminatedRef.current) return;
     try {
       chatAbortRef.current?.abort();
@@ -251,7 +242,7 @@ export default function SessionPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history }),
+        body: JSON.stringify({ messages: history, language, stepContext }),
         signal: controller.signal
       });
       const data = await res.json();
@@ -381,6 +372,25 @@ export default function SessionPage() {
         <Link href="/" className="footnote">
           Home
         </Link>
+      </div>
+
+      <div className="cta-row" style={{ alignItems: "center", justifyContent: "space-between" }}>
+        <div className="footnote">Session language</div>
+        <div className="cta-row">
+          {LANGUAGES.map((lang) => (
+            <button
+              key={lang.code}
+              onClick={() => setLanguage(lang.code as "en" | "es")}
+              disabled={isRecording || isProcessing || isSpeaking}
+              style={{
+                background: language === lang.code ? "var(--panel-strong)" : "var(--panel)",
+                border: language === lang.code ? "1px solid var(--accent)" : "1px solid rgba(255,255,255,0.08)"
+              }}
+            >
+              {lang.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid-two">

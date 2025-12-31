@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ELEVENLABS_VOICE_SETTINGS } from "../../../lib/runtimeSettings";
 
 const MAX_TTS_TEXT = 800;
 
@@ -28,7 +29,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Text is required." }, { status: 400 });
   }
 
-  const clippedText = text.slice(0, MAX_TTS_TEXT);
+  const cleaned = stripFormatting(text);
+  const clippedText = cleaned.slice(0, MAX_TTS_TEXT);
   const url = `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`;
 
   try {
@@ -42,7 +44,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         text: clippedText,
         model_id: "eleven_turbo_v2",
-        voice_settings: { stability: 0.35, similarity_boost: 0.5 }
+        voice_settings: ELEVENLABS_VOICE_SETTINGS
       })
     });
 
@@ -71,4 +73,13 @@ async function safeText(res: Response) {
   } catch {
     return res.statusText || "no details";
   }
+}
+
+function stripFormatting(input: string) {
+  let output = input.replace(/[*_`>#]/g, "");
+  output = output.replace(/-{2,}/g, "-");
+  output = output.replace(/\.{3,}/g, ".");
+  output = output.replace(/^\s*[-+]\s+/gm, "");
+  output = output.replace(/^\s*\d+\.\s+/gm, "");
+  return output.trim();
 }

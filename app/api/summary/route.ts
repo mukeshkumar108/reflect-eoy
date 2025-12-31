@@ -12,7 +12,7 @@ type Message = { role: "user" | "assistant" | "system"; content: string };
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENROUTER_API_KEY;
-  const model = process.env.OPENROUTER_MODEL;
+  const model = process.env.OPENROUTER_SUMMARY_MODEL || process.env.OPENROUTER_MODEL;
 
   if (!apiKey || !model) {
     return NextResponse.json(

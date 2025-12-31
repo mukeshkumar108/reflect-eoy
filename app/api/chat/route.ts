@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { coachSystemPrompt } from "../../../lib/prompts";
+import { OPENROUTER_CHAT_PARAMS } from "../../../lib/runtimeSettings";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MAX_MESSAGES = 50;
@@ -22,10 +23,14 @@ export async function POST(req: NextRequest) {
   }
 
   let messages: Message[] = [];
+  let language = "en";
+  let stepContext = "";
 
   try {
     const body = await req.json();
     messages = body?.messages || [];
+    language = body?.language === "es" ? "es" : "en";
+    stepContext = typeof body?.stepContext === "string" ? body.stepContext : "";
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
   }
@@ -45,8 +50,20 @@ export async function POST(req: NextRequest) {
 
   const payload = {
     model,
-    messages: [{ role: "system", content: coachSystemPrompt }, ...sanitizedMessages],
-    temperature: 0.6
+    messages: [
+      {
+        role: "system",
+        content: `${coachSystemPrompt}\nRespond in language: ${language}.\nCurrent step intent: ${
+          stepContext || "continue naturally"
+        }\nYou must ask the next single question for this step.`
+      },
+      ...sanitizedMessages
+    ],
+    temperature: OPENROUTER_CHAT_PARAMS.temperature,
+    top_p: OPENROUTER_CHAT_PARAMS.top_p,
+    max_tokens: OPENROUTER_CHAT_PARAMS.max_tokens,
+    presence_penalty: OPENROUTER_CHAT_PARAMS.presence_penalty,
+    frequency_penalty: OPENROUTER_CHAT_PARAMS.frequency_penalty
   };
 
   try {

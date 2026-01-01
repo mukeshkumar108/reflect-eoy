@@ -25,12 +25,14 @@ export async function POST(req: NextRequest) {
   let messages: Message[] = [];
   let language = "en";
   let stepContext = "";
+  let stepIndex: number | undefined;
 
   try {
     const body = await req.json();
     messages = body?.messages || [];
     language = body?.language === "es" ? "es" : "en";
     stepContext = typeof body?.stepContext === "string" ? body.stepContext : "";
+    stepIndex = typeof body?.stepIndex === "number" ? body.stepIndex : undefined;
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
   }
@@ -48,6 +50,33 @@ export async function POST(req: NextRequest) {
     content: (m.content || "").slice(0, MAX_CONTENT_LENGTH)
   })) as Message[];
 
+  const depthCapNote =
+    stepContext && sanitizedMessages.length > 4
+      ? "Depth cap triggered: wrap this category and transition to the next one."
+      : "";
+
+  const assistantTurns = sanitizedMessages.filter((m) => m.role === "assistant").length;
+  const turnCapNote =
+    assistantTurns >= 1
+      ? "Per-step turn cap reached: do NOT ask a follow-up here. Ask the NEXT step question now."
+      : "";
+
+  const bannedPatterns =
+    "BANNED QUESTION PATTERNS: 'where were you', 'what happened first', 'pick one', 'stung', 'how did that make you feel', 'what did that give you', 'tell me about a specific moment', 'one intense argument'. Do not ask for income/work details unless this step explicitly requires it.";
+
+  const shapeByStep =
+    stepIndex === 0
+      ? "ALLOWED SHAPE: headline + one surprise, broad. DISALLOWED: scene mining."
+      : stepIndex === 1
+        ? "ALLOWED SHAPE: 1–2 wins max, broad classification. DISALLOWED: scene mining or deep follow-ups."
+        : stepIndex === 2
+          ? "ALLOWED SHAPE: 1–2 drains using classification buckets. DISALLOWED: story-level probing."
+          : stepIndex === 3 || stepIndex === 4
+            ? "ALLOWED SHAPE: one cause or one lesson only. DISALLOWED: stories or multiple probes."
+            : stepIndex === 5 || stepIndex === 6 || stepIndex === 7 || stepIndex === 8 || stepIndex === 9 || stepIndex === 10 || stepIndex === 11
+              ? "ALLOWED SHAPE: broad, actionable question for this category (systems, time, people, unfinished, alignment, memories, plan/finale). DISALLOWED: scene mining or multiple examples."
+              : "Keep it broad and move forward.";
+
   const payload = {
     model,
     messages: [
@@ -55,7 +84,7 @@ export async function POST(req: NextRequest) {
         role: "system",
         content: `${coachSystemPrompt}\nRespond in language: ${language}.\nCurrent step intent: ${
           stepContext || "continue naturally"
-        }\nYou must ask the next single question for this step. Include brief factual recap when appropriate. If coming from a drain, reconnect to a prior positive anchor before the question. If user parks/declines, acknowledge once then offer a narrowed prompt or move on.`
+        }\nState marker: you are on step ${stepIndex ?? "unknown"} of 12. Primary goal is completion: ask the next single question and move to the next category once answered.\n${depthCapNote}\n${turnCapNote}\n${bannedPatterns}\n${shapeByStep}`
       },
       ...sanitizedMessages
     ],

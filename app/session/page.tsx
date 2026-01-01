@@ -39,6 +39,7 @@ export default function SessionPage() {
   const [questionStep, setQuestionStep] = useState(0);
   const [hasBegun, setHasBegun] = useState(false);
   const [language, setLanguage] = useState<"en" | "es">("en");
+  const [testMode, setTestMode] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -56,6 +57,7 @@ export default function SessionPage() {
   const chatAbortRef = useRef<AbortController | null>(null);
   const ttsAbortRef = useRef<AbortController | null>(null);
   const terminatedRef = useRef(false);
+  const testRunRef = useRef(false);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -66,6 +68,41 @@ export default function SessionPage() {
       hardEndSession();
     };
   }, []);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      setTestMode(params.get("test") === "1");
+    }
+  }, []);
+
+  useEffect(() => {
+    const runScriptedTest = async () => {
+      if (testRunRef.current || !testMode) return;
+      testRunRef.current = true;
+      await startSessionOrResume();
+      const scriptedInputs = [
+        "I'm ready.",
+        "I fell in love completely.",
+        "Ashley... she came from Guatemala to England... I visited Guatemala... met her kids and friends.",
+        "We went to the London temple and ducks followed us for two hours; it felt like a blessing.",
+        "Work/career was hard and stressful; money didn’t happen as expected.",
+        "Most valuable time was walking/travel/being with Ashley.",
+        "Unfinished goal: stabilize career.",
+        "Success next year: relationship stability + career progress + better health.",
+        "85-year-old me would want more presence; miserable if I repeat anxiety/avoidance."
+      ];
+      for (const input of scriptedInputs) {
+        console.log("[TEST USER]", input);
+        await handleUserTurn(input);
+        await waitFor(200);
+      }
+      console.log("[TEST] Scripted run complete.");
+    };
+    if (process.env.NODE_ENV !== "production" && testMode) {
+      void runScriptedTest();
+    }
+  }, [testMode]);
 
   const supportedMimeType = () => {
     if (typeof MediaRecorder === "undefined") return null;
@@ -222,18 +259,18 @@ export default function SessionPage() {
     if (!hasBegun) setHasBegun(true);
     setSummary(null);
 
-    if (questionStep <= 9) {
+    if (questionStep <= 11) {
       const nextStep = questionStep + 1;
       setQuestionStep(nextStep);
       const context = stepIntents[questionStep] || "Continue the reflection naturally.";
-      await sendChat([...messages, { role: "user", content: trimmed }], context);
+      await sendChat([...messages, { role: "user", content: trimmed }], context, questionStep);
       return;
     }
 
     await sendChat([...messages, { role: "user", content: trimmed }]);
   };
 
-  const sendChat = async (history: Message[], stepContext?: string) => {
+  const sendChat = async (history: Message[], stepContext?: string, stepIndex?: number) => {
     if (terminatedRef.current) return;
     try {
       chatAbortRef.current?.abort();
@@ -242,7 +279,7 @@ export default function SessionPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, language, stepContext }),
+        body: JSON.stringify({ messages: history, language, stepContext, stepIndex }),
         signal: controller.signal
       });
       const data = await res.json();
@@ -251,6 +288,9 @@ export default function SessionPage() {
       }
 
       const assistantText: string = data.assistantText;
+      if (testMode) {
+        console.log("[TEST ASSISTANT]", assistantText);
+      }
       await deliverAssistant(assistantText, { autoListen: true });
     } catch (err: any) {
       if (err?.name === "AbortError") return;
@@ -268,6 +308,7 @@ export default function SessionPage() {
   const speak = async (text: string) => {
     if (!text) return;
     const clipped = text.slice(0, MAX_TTS_CHARS);
+    if (testMode) return;
     try {
       setIsSpeaking(true);
       ttsAbortRef.current?.abort();
@@ -302,6 +343,7 @@ export default function SessionPage() {
     }
   };
 
+  const waitFor = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const appendMessage = (msg: Message) => {
     setMessages((prev) => [...prev, msg]);
   };
